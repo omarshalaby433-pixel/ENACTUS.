@@ -1289,7 +1289,7 @@
     // ===== BACKEND CONFIG =====
     // الصق هنا رابط الـ Web App بتاع Google Apps Script (بينتهي بـ /exec).
     // لو سبته فاضي، الموقع بيشتغل محلياً على المتصفح بس (localStorage) للتجربة.
-    const BAKED_API_URL = "https://script.google.com/macros/s/AKfycbz4Kty0Vh9JKLq5wMUJpr4Yuxuypo8sQUajcZibRns/dev"; // اختياري: لو لصقت الرابط هنا مش هتحتاج ?api= ولا الإعداد من الصفحة
+    const BAKED_API_URL = "https://script.google.com/macros/s/AKfycbyibBnWRWGOpWqIq88cOOvLUci1u0KWLkitNcB66Zfy3skonknmQXD9Qm-X9VAp_Hel/exec"; // اختياري: لو لصقت الرابط هنا مش هتحتاج ?api= ولا الإعداد من الصفحة
     let API_URL = BAKED_API_URL;
     try {
       const q = new URLSearchParams(location.search).get("api");
@@ -1372,7 +1372,9 @@
           pillarScores = {};
           setSyncStatus("ok", "☁ Online");
         } catch (e) {
-          setSyncStatus("err", "⚠ Server unreachable");
+          const chip = e instanceof SyntaxError ? "⚠ Deployment is not public"
+            : (e && e.message && e.message !== "Failed to fetch" ? "⚠ Server error: " + String(e.message).slice(0, 60) : "⚠ Server unreachable");
+          setSyncStatus("err", chip);
           const why = e instanceof SyntaxError ? "Server returned a login/HTML page — set Who has access = Anyone, then redeploy"
             : (e && e.message && e.message !== "Failed to fetch" ? "Server error: " + e.message : "Request blocked — check the /exec URL and that the deployment is public");
           showToast(why, "!");
