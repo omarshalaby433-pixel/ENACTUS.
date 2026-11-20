@@ -1779,6 +1779,18 @@
       });
     }
 
+    function uploadErrorHint(err) {
+      const e = String(err || "");
+      if (e === "unreadable") return "this browser cannot read the image (HEIC?). Use a JPG/PNG photo.";
+      if (e === "unknown_action") return "the Apps Script is still the OLD version. Paste the new Code.gs, then Deploy → Manage deployments → Edit → New version.";
+      if (e === "bad_password" || e === "too_many_attempts") return "Board password rejected by the server. Lock and unlock the Board Portal again.";
+      if (e === "image_too_large") return "the photo is too large even after resizing.";
+      if (e === "bad_image_type") return "unsupported image type.";
+      if (e === "html_response" || /Failed to fetch|NetworkError/i.test(e)) return "the server answered with a page instead of data — usually the Drive permission was not approved (run any function in Apps Script and click Allow) or the deployment is not set to Anyone.";
+      if (/permission|authoriz/i.test(e)) return "Drive permission is missing. In Apps Script run any function, click Review permissions → Allow, then Deploy a New version. (" + e + ")";
+      return e;
+    }
+
     async function uploadMemoryPhotos(input) {
       const files = Array.from(input.files || []);
       const status = document.getElementById("memoryUploadStatus");
@@ -1787,7 +1799,7 @@
       if (!API_URL) { showToast("Connect the Google Sheet backend first to upload photos", "!"); input.value = ""; return; }
 
       const area = document.getElementById("memoryPhotosInput");
-      let done = 0, failed = 0;
+      let done = 0, failed = 0, lastErr = "";
       for (const f of files) {
         status.textContent = `⏳ Uploading ${done + failed + 1} of ${files.length}…  (${f.name})`;
         try {
@@ -1804,12 +1816,13 @@
           done++;
         } catch (e) {
           failed++;
+          lastErr = e instanceof SyntaxError ? "html_response" : String(e && e.message || e);
           console.error("Upload failed:", f.name, e);
         }
       }
       input.value = "";
       status.innerHTML = failed
-        ? `<span class="text-red-400">✓ ${done} uploaded, ✕ ${failed} failed.</span> Failed files may be an unsupported format (e.g. HEIC) — or the Drive permission was not approved in Apps Script.`
+        ? `<span class="text-red-400">✓ ${done} uploaded, ✕ ${failed} failed.</span> <span class="text-slate-200">Reason: ${escSession(uploadErrorHint(lastErr))}</span>`
         : `<span class="text-emerald-400">✓ ${done} photo${done === 1 ? "" : "s"} uploaded.</span> Now press <strong class="text-slate-200">Add Album</strong> to publish.`;
       showToast(failed ? `${done} uploaded, ${failed} failed` : `${done} photo(s) uploaded`, failed ? "!" : "📸");
     }
