@@ -651,8 +651,13 @@
               <label class="block text-[10px] font-mono text-slate-400 mb-1">Text shown above the photos (optional)</label>
               <textarea id="memoryNoteInput" rows="3" maxlength="600" placeholder="Write a few words about this day..." class="w-full bg-canvas-panel border border-canvas-border focus:border-canvas-gold rounded-xl px-3 py-2 text-xs text-white focus:outline-none"></textarea>
             </div>
+            <div class="md:col-span-12 bg-canvas-panel border border-dashed border-canvas-gold/50 rounded-xl p-3 space-y-2">
+              <div class="text-xs font-mono font-bold text-canvas-gold">⬆ Upload photos from your device</div>
+              <input id="memoryFilesInput" type="file" accept="image/*" multiple onchange="uploadMemoryPhotos(this)" class="block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-canvas-gold file:text-canvas-bg file:font-bold file:px-3 file:py-2 file:cursor-pointer" />
+              <div id="memoryUploadStatus" class="text-[11px] font-mono text-slate-400">Pick one or more photos — they are saved to your Google Drive automatically and added below. Then press <strong class="text-slate-200">Add Album</strong>.</div>
+            </div>
             <div class="md:col-span-12">
-              <label class="block text-[10px] font-mono text-slate-400 mb-1">Photos — paste one Google Drive photo link per line (each photo shared as "Anyone with the link")</label>
+              <label class="block text-[10px] font-mono text-slate-400 mb-1">Photo links (filled automatically by the upload — you can also paste Google Drive photo links, one per line)</label>
               <textarea id="memoryPhotosInput" rows="5" placeholder="https://drive.google.com/file/d/.../view&#10;https://drive.google.com/file/d/.../view" class="w-full bg-canvas-panel border border-canvas-border focus:border-canvas-gold rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none"></textarea>
             </div>
           </div>
@@ -1289,7 +1294,7 @@
     // ===== BACKEND CONFIG =====
     // الصق هنا رابط الـ Web App بتاع Google Apps Script (بينتهي بـ /exec).
     // لو سبته فاضي، الموقع بيشتغل محلياً على المتصفح بس (localStorage) للتجربة.
-    const BAKED_API_URL = "https://script.google.com/macros/s/AKfycbyibBnWRWGOpWqIq88cOOvLUci1u0KWLkitNcB66Zfy3skonknmQXD9Qm-X9VAp_Hel/exec"; // اختياري: لو لصقت الرابط هنا مش هتحتاج ?api= ولا الإعداد من الصفحة
+    const BAKED_API_URL = "https://script.google.com/macros/s/AKfycbwbc52lYD3PoKVTAqjUSmMNg_Yc51c7FthyRtKX90miwx-owZIy0zaAZmtgAia5VY5b/exec"; // اختياري: لو لصقت الرابط هنا مش هتحتاج ?api= ولا الإعداد من الصفحة
     let API_URL = BAKED_API_URL;
     try {
       const q = new URLSearchParams(location.search).get("api");
@@ -1755,6 +1760,60 @@
       document.getElementById("photoViewer")?.remove();
     }
 
+    // ----- Upload photos from the device straight into Google Drive (Board only) -----
+    function resizeImageToJpegBase64(file, maxSide) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.width * scale);
+          c.height = Math.round(img.height * scale);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url);
+          resolve(c.toDataURL("image/jpeg", 0.85).split(",")[1]);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("unreadable")); };
+        img.src = url;
+      });
+    }
+
+    async function uploadMemoryPhotos(input) {
+      const files = Array.from(input.files || []);
+      const status = document.getElementById("memoryUploadStatus");
+      if (!files.length) return;
+      if (!boardUnlocked || !boardPasswordSession) { showToast("Unlock the Board Portal first", "✕"); input.value = ""; return; }
+      if (!API_URL) { showToast("Connect the Google Sheet backend first to upload photos", "!"); input.value = ""; return; }
+
+      const area = document.getElementById("memoryPhotosInput");
+      let done = 0, failed = 0;
+      for (const f of files) {
+        status.textContent = `⏳ Uploading ${done + failed + 1} of ${files.length}…  (${f.name})`;
+        try {
+          const data = await resizeImageToJpegBase64(f, 1600);
+          const r = await api({
+            action: "uploadPhoto",
+            password: boardPasswordSession,
+            mime: "image/jpeg",
+            name: f.name.replace(/\.\w+$/, "") + ".jpg",
+            data
+          });
+          if (!r.ok) throw new Error(r.error);
+          area.value = (area.value.trim() ? area.value.trim() + "\n" : "") + r.url;
+          done++;
+        } catch (e) {
+          failed++;
+          console.error("Upload failed:", f.name, e);
+        }
+      }
+      input.value = "";
+      status.innerHTML = failed
+        ? `<span class="text-red-400">✓ ${done} uploaded, ✕ ${failed} failed.</span> Failed files may be an unsupported format (e.g. HEIC) — or the Drive permission was not approved in Apps Script.`
+        : `<span class="text-emerald-400">✓ ${done} photo${done === 1 ? "" : "s"} uploaded.</span> Now press <strong class="text-slate-200">Add Album</strong> to publish.`;
+      showToast(failed ? `${done} uploaded, ${failed} failed` : `${done} photo(s) uploaded`, failed ? "!" : "📸");
+    }
+
     function resetMemoryForm() {
       editingMemoryId = null;
       ["memoryTitleInput", "memoryDateInput", "memoryLinkInput", "memoryPhotosInput", "memoryNoteInput"].forEach((id) => {
@@ -1766,6 +1825,8 @@
       const b = document.getElementById("memorySaveBtn");
       if (b) b.textContent = "Add Album";
       document.getElementById("memoryCancelBtn")?.classList.add("hidden");
+      const fi = document.getElementById("memoryFilesInput");
+      if (fi) fi.value = "";
     }
 
     function editMemory(id) {
